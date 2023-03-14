@@ -1,0 +1,71 @@
+function [ PI_IN, S_POST, p01_upd ] = SPD_MC( PI_OUT, LAMBDA, p01 )
+%SPD_MC 此处显示有关此函数的摘要
+%   此处显示详细说明
+%   forward and backward algorithm
+% binary symbols
+% -1 1
+% 0  1
+N = size(PI_OUT,1);
+%T = size(PI_OUT,2);
+T = 1;
+P01 = p01*ones(N,T);
+P10 = P01 .* (LAMBDA ./ (1 - LAMBDA));    %转移概率 
+LAMBDA_FWD = NaN*ones(N,T);
+LAMBDA_BWD = NaN*ones(N,T);
+LAMBDA_FWD(1,:) = LAMBDA(1,:);
+%LAMBDA_FWD(1,:) = eps;
+LAMBDA_BWD(N,:) = 0.5;
+% LAMBDA_FWD(1,:) = eps;
+% LAMBDA_BWD(N,:) = eps;
+
+% First the forward pass
+for n = 2 : 1 : N
+    LAMBDA_FWD(n,:) = (P10(n,:) .* (1 - PI_OUT(n-1,:)) .* (1 - LAMBDA_FWD(n-1,:)) + ...  % 和数学上的转移概率不同，顺序稍微反了
+        (1 - P01(n,:)) .* PI_OUT(n-1,:) .* LAMBDA_FWD(n-1,:)) ./ ...
+        ((1 - PI_OUT(n-1,:)) .* (1 - LAMBDA_FWD(n-1,:)) + ...
+        PI_OUT(n-1,:) .* LAMBDA_FWD(n-1,:));
+end
+
+% Now the backward pass
+for n = N-1 : -1 : 1
+    LAMBDA_BWD(n,:) = (P01(n,:) .* (1 - PI_OUT(n+1,:)) .* (1 - LAMBDA_BWD(n+1,:)) + ...
+        (1 - P01(n,:)) .* PI_OUT(n+1,:) .* LAMBDA_BWD(n+1,:)) ./ ...
+        ((1 - P10(n,:) + P01(n,:)) .* (1 - PI_OUT(n+1,:)) .* (1 - LAMBDA_BWD(n+1,:)) + ...
+        (1 - P01(n,:) + P10(n,:)) .* PI_OUT(n+1,:) .* LAMBDA_BWD(n+1,:));
+end
+
+PI_IN = (LAMBDA_FWD .* LAMBDA_BWD) ./ ((1 - LAMBDA_FWD) .* ...
+    (1 - LAMBDA_BWD) + LAMBDA_FWD .* LAMBDA_BWD);
+
+% First compute posterior means
+MU_S = (PI_OUT .* LAMBDA_FWD .* LAMBDA_BWD) ./ ((1 - PI_OUT) .* ...
+    (1 - LAMBDA_FWD) .* (1 - LAMBDA_BWD) + PI_OUT .* LAMBDA_FWD .* ...
+    LAMBDA_BWD);
+
+PS0S0 = (1 - P10(1:N-1,:)) .* ((1 - LAMBDA_FWD(1:N-1,:)) .* ...
+    (1 - PI_OUT(1:N-1,:))) .* ((1 - LAMBDA_BWD(2:N,:)) .* ...
+    (1 - PI_OUT(2:N,:)));
+PS1S0 = P10(1:N-1,:) .* ((1 - LAMBDA_FWD(1:N-1,:)) .* ...
+    (1 - PI_OUT(1:N-1,:))) .* ((LAMBDA_BWD(2:N,:)) .* ...
+    (PI_OUT(2:N,:)));
+PS0S1 = P01(1:N-1,:) .* ((LAMBDA_FWD(1:N-1,:)) .* ...
+    (PI_OUT(1:N-1,:))) .* ((1 - LAMBDA_BWD(2:N,:)) .* ...
+    (1 - PI_OUT(2:N,:)));
+PS1S1 = (1 - P01(1:N-1,:)) .* ((LAMBDA_FWD(1:N-1,:)) .* ...
+    (PI_OUT(1:N-1,:))) .* ((LAMBDA_BWD(2:N,:)) .* ...
+    (PI_OUT(2:N,:)));
+
+S_CORR = PS1S1 ./ (PS0S0 + PS0S1 + PS1S0 + PS1S1);
+
+% Now update the active-to-inactive transition probability via EM
+% p01_upd = sum(sum(MU_S(1:N-1,:) - S_CORR)) / ...
+%     sum(sum(MU_S(1:N-1,:)));
+p01_upd = sum(sum(MU_S(1:N-1,:) - S_CORR)) / ...
+    sum(sum(MU_S(1:N-1,:)));
+p01_upd = max(min(p01_upd, 1), 0);
+
+S_POST = MU_S;
+
+
+end
+
